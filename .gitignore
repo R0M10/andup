@@ -1,3 +1,16 @@
+# Program specific 
+## Text log
+DuplicateFinder_Reports/
+## Trashcan for deleted files 
+DuplicateFinder_Trash/
+
+## Log and Cache -- personal data!!!
+duplicate_finder.log
+duplicate_finder_settings.json
+hash_cache.db
+hash_cache.db-shm
+hash_cache.db-wal
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
