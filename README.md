@@ -74,10 +74,18 @@
 ## 📸 Скриншоты
 
 > Скриншоты из v0.9.0 на Windows 11 (светлая тема).
-| Вкладка поиска | Все дубликаты | По группам |
-|---|---|---|
-| ![Поиск](assets/images/search.png) | ![Все](assets/images/all.png) | ![Группы](assets/images/groups.png) |
 
+**Вкладка «Поиск»**
+
+<img src="assets/images/search.png" width="700">
+
+**Вкладка «Все дубликаты»**
+
+<img src="assets/images/all.png" width="700">
+
+**Вкладка «По группам»**
+
+<img src="assets/images/groups.png" width="700">
 ---
 
 ## 📋 Требования
@@ -95,7 +103,7 @@
 ### Установка Tkinter (Linux)
 ```bash
 # Debian/Ubuntu
-sudo apt-get install python3-tk
+sudo apt install python3-tk
 # Fedora
 sudo dnf install python3-tkinter
 # Arch
@@ -211,11 +219,11 @@ graph LR
 
 ## 🖥️ Совместимость
 
-| ОС | Статус | Примечания |
-| :--- | :---: | :--- |
-| 🪟 **Windows 10/11** | ✅ | `Send2Trash` → системная корзина |
-| 🐧 **Linux** | ✅ | Требуется `python3-tk`; корзина через `Send2Trash` |
-| 🍏 **macOS** | ✅ | `Send2Trash` → системная корзина |
+| ОС | Примечания |
+| :--- |:--- |
+| **Windows 10/11** |`Send2Trash` → системная корзина |
+| **Linux** | Требуется `python3-tk`; корзина через `Send2Trash` |
+| **macOS** | `Send2Trash` → системная корзина |
 
 ---
 
@@ -243,5 +251,5 @@ graph LR
 ---
 
 ## 📄 Лицензия
-Проект распространяется под лицензией **MIT**. Подробности — в файле [LICENSE](LICENSE).
+Проект распространяется под лицензией **MIT**. Подробности — в файле [LICENSE](LICENSE). \
 Коротко: можно свободно использовать, изменять и распространять, в том числе в коммерческих целях, при условии сохранения копирайта и текста лицензии.
