@@ -7,26 +7,31 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import os
 import sys
-import hashlib
 import threading
 import queue
 import json
 import sqlite3
-import logging
-import shutil
-import tempfile
+import logging 
 from datetime import datetime
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import subprocess
 
+# # >> utils.py >>>>>>>> 
+# import shutil
+# import tempfile
+# # >>> hashing.py
+# import hashlib
+
 # --- опциональные зависимости ------------------------------------------------
-try:
-    from send2trash import send2trash
-    HAS_SEND2TRASH = True
-except ImportError:
-    HAS_SEND2TRASH = False
+
+# # >>> utils.py >>>>
+# try:
+#     from send2trash import send2trash
+#     HAS_SEND2TRASH = True
+# except ImportError:
+#     HAS_SEND2TRASH = False
 
 try:
     from PIL import Image, ImageTk
@@ -34,104 +39,130 @@ try:
 except ImportError:
     HAS_PIL = False
 
-
-# ============================================================================
-# КОНСТАНТЫ
-# ============================================================================
-DF_VERSION = "0.9.0"
-DF_VERSION_TEXT = f"Версия: {DF_VERSION}"
-BLOCK_SIZE = 65536
-FUTURES_BATCH = 200
-SETTINGS_FILE = "duplicate_finder_settings.json"
-LOG_FILE = "duplicate_finder.log"
-TRASH_DIR = "DuplicateFinder_Trash"
-REPORTS_DIR = "DuplicateFinder_Reports"
-
-PROTECTED_EXTS = {".exe", ".dll", ".sys", ".drv", ".so", ".dylib", ".msi"}
-
-IMG_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"}
-
-if os.name == "nt":
-    PROTECTED_PATHS = [
-        os.environ.get("WINDIR", r"C:\Windows"),
-        r"C:\Program Files",
-        r"C:\Program Files (x86)",
-        r"C:\ProgramData",
-    ]
-else:
-    PROTECTED_PATHS = ["/System", "/usr", "/bin", "/sbin", "/etc", "/var"]
+# --- Локальный пакет ------------------------------------------------
+from andup.constants import (
+    DF_VERSION, DF_VERSION_TEXT, BLOCK_SIZE, FUTURES_BATCH,
+    LOG_FILE, REPORTS_DIR, IMG_EXTS,
+)
+from andup.themes import LIGHT, DARK
+from andup.config import load_settings, save_settings, DEFAULT_SETTINGS
+from andup.utils import (
+    HAS_SEND2TRASH, check_protected, move_to_trash,
+    create_hardlink, format_size, normalize_path,
+)
+from andup.hashing import calculate_hash as _hash_full, calculate_quick_hash as _hash_quick
 
 logging.basicConfig(
     filename=LOG_FILE, level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
+    encoding="utf-8",
 )
 log = logging.getLogger("df")
 
-# ============================================================================
-# ТЕМЫ
-# ============================================================================
-LIGHT = {
-    "bg": "#f5f5f5", "fg": "#333333",
-    "accent": "#2c3e50", "warning": "#e74c3c",
-    "success": "#27ae60", "info": "#3498db",
-    "entry_bg": "#ffffff", "tree_bg": "#ffffff",
-    "tree_fg": "#222222", "tree_sel": "#3498db",
-    "row_first": "#eafaf1", "panel": "#ffffff",
-    "border": "#cccccc", "muted": "#888888",
-    "text_bg": "#ffffff", "text_fg": "#222222",
-}
-DARK = {
-    "bg": "#1e1e1e", "fg": "#e0e0e0",
-    "accent": "#7aa7ff", "warning": "#ff6b6b",
-    "success": "#6bcf7f", "info": "#5fa8ff",
-    "entry_bg": "#2a2a2a", "tree_bg": "#252525",
-    "tree_fg": "#e0e0e0", "tree_sel": "#3a5a8c",
-    "row_first": "#1f3a2a", "panel": "#252525",
-    "border": "#3a3a3a", "muted": "#9a9a9a",
-    "text_bg": "#252525", "text_fg": "#e0e0e0",
-}
-
 
 # ============================================================================
-# НАСТРОЙКИ
+# КОНСТАНТЫ
 # ============================================================================
-DEFAULT_SETTINGS = {
-    "recent_paths": [],
-    "dark_theme": False,
-    "delete_to_trash": True,
-    "ignore_folders": ["node_modules", ".git", "__pycache__", ".cache",
-                       "System Volume Information", "$RECYCLE.BIN", ".venv"],
-    "last_algorithm": "sha256",
-    "last_threads": 2,
-    "last_recursive": True,
-    "last_use_cache": True,
-    "last_extensions": ".epub,.pdf,.fb2,.mobi,.txt,.doc,.docx,.jpg,.jpeg,.png,"
-                       ".mp3,.mp4,.avi,.mkv,.zip,.rar,.djvu,.chm",
-    "auto_select_strategy": "oldest",
-    "window_geometry": "1400x900",
-}
 
 
-def load_settings():
-    s = dict(DEFAULT_SETTINGS)
-    try:
-        if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            for k, v in data.items():
-                if k in s:
-                    s[k] = v
-    except Exception as e:
-        log.warning("Ошибка загрузки настроек: %s", e)
-    return s
+### Разбиение всего кода на отдельные модули
+### > constants.py >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+# DF_VERSION = "0.9.0"
+# DF_VERSION_TEXT = f"Версия: {DF_VERSION}"
+# BLOCK_SIZE = 65536
+# FUTURES_BATCH = 200
+# SETTINGS_FILE = "duplicate_finder_settings.json"
+# LOG_FILE = "duplicate_finder.log"
+# TRASH_DIR = "DuplicateFinder_Trash"
+# REPORTS_DIR = "DuplicateFinder_Reports"
+
+# PROTECTED_EXTS = {".exe", ".dll", ".sys", ".drv", ".so", ".dylib", ".msi"}
+
+# IMG_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"}
+
+# if os.name == "nt":
+#     PROTECTED_PATHS = [
+#         os.environ.get("WINDIR", r"C:\Windows"),
+#         r"C:\Program Files",
+#         r"C:\Program Files (x86)",
+#         r"C:\ProgramData",
+#     ]
+# else:
+#     PROTECTED_PATHS = ["/System", "/usr", "/bin", "/sbin", "/etc", "/var"]
+
+# logging.basicConfig(
+#     filename=LOG_FILE, level=logging.INFO,
+#     format="%(asctime)s [%(levelname)s] %(message)s",
+# )
+# log = logging.getLogger("df")
+
+### > themes.py >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# # ============================================================================
+# # ТЕМЫ
+# # ============================================================================
+# LIGHT = {
+#     "bg": "#f5f5f5", "fg": "#333333",
+#     "accent": "#2c3e50", "warning": "#e74c3c",
+#     "success": "#27ae60", "info": "#3498db",
+#     "entry_bg": "#ffffff", "tree_bg": "#ffffff",
+#     "tree_fg": "#222222", "tree_sel": "#3498db",
+#     "row_first": "#eafaf1", "panel": "#ffffff",
+#     "border": "#cccccc", "muted": "#888888",
+#     "text_bg": "#ffffff", "text_fg": "#222222",
+# }
+# DARK = {
+#     "bg": "#1e1e1e", "fg": "#e0e0e0",
+#     "accent": "#7aa7ff", "warning": "#ff6b6b",
+#     "success": "#6bcf7f", "info": "#5fa8ff",
+#     "entry_bg": "#2a2a2a", "tree_bg": "#252525",
+#     "tree_fg": "#e0e0e0", "tree_sel": "#3a5a8c",
+#     "row_first": "#1f3a2a", "panel": "#252525",
+#     "border": "#3a3a3a", "muted": "#9a9a9a",
+#     "text_bg": "#252525", "text_fg": "#e0e0e0",
+# }
+
+### > config.py >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# # ============================================================================
+# # НАСТРОЙКИ
+# # ============================================================================
+# DEFAULT_SETTINGS = {
+#     "recent_paths": [],
+#     "dark_theme": False,
+#     "delete_to_trash": True,
+#     "ignore_folders": ["node_modules", ".git", "__pycache__", ".cache",
+#                        "System Volume Information", "$RECYCLE.BIN", ".venv"],
+#     "last_algorithm": "sha256",
+#     "last_threads": 2,
+#     "last_recursive": True,
+#     "last_use_cache": True,
+#     "last_extensions": ".epub,.pdf,.fb2,.mobi,.txt,.doc,.docx,.jpg,.jpeg,.png,"
+#                        ".mp3,.mp4,.avi,.mkv,.zip,.rar,.djvu,.chm",
+#     "auto_select_strategy": "oldest",
+#     "window_geometry": "1400x900",
+# }
 
 
-def save_settings(s):
-    try:
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(s, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        log.warning("Ошибка сохранения настроек: %s", e)
+# def load_settings():
+#     s = dict(DEFAULT_SETTINGS)
+#     try:
+#         if os.path.exists(SETTINGS_FILE):
+#             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+#                 data = json.load(f)
+#             for k, v in data.items():
+#                 if k in s:
+#                     s[k] = v
+#     except Exception as e:
+#         log.warning("Ошибка загрузки настроек: %s", e)
+#     return s
+
+
+# def save_settings(s):
+#     try:
+#         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+#             json.dump(s, f, ensure_ascii=False, indent=2)
+#     except Exception as e:
+#         log.warning("Ошибка сохранения настроек: %s", e)
 
 
 # ============================================================================
@@ -221,82 +252,84 @@ class HashCache:
                 self.conn = None
 
 
-# ============================================================================
-# УТИЛИТЫ
-# ============================================================================
-def check_protected(filepath):
-    """True, если путь защищён (системная папка или опасное расширение)."""
-    ext = os.path.splitext(filepath)[1].lower()
-    if ext in PROTECTED_EXTS:
-        return True
-    try:
-        real = os.path.realpath(filepath).lower()
-    except OSError:
-        return False
-    for p in PROTECTED_PATHS:
-        try:
-            rp = os.path.realpath(p).lower()
-        except OSError:
-            continue
-        if real == rp or real.startswith(rp + os.sep):
-            return True
-    return False
+### > utils.py >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+# # ============================================================================
+# # УТИЛИТЫ
+# # ============================================================================
+# def check_protected(filepath):
+#     """True, если путь защищён (системная папка или опасное расширение)."""
+#     ext = os.path.splitext(filepath)[1].lower()
+#     if ext in PROTECTED_EXTS:
+#         return True
+#     try:
+#         real = os.path.realpath(filepath).lower()
+#     except OSError:
+#         return False
+#     for p in PROTECTED_PATHS:
+#         try:
+#             rp = os.path.realpath(p).lower()
+#         except OSError:
+#             continue
+#         if real == rp or real.startswith(rp + os.sep):
+#             return True
+#     return False
 
 
-def move_to_trash(filepath, use_send2trash=True):
-    """Пытается отправить файл в системную корзину, иначе — в локальную."""
-    if use_send2trash and HAS_SEND2TRASH:
-        try:
-            send2trash(filepath)
-            return True, None
-        except Exception as e:
-            log.warning("send2trash не сработал: %s", e)
-    try:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        drive, rest = os.path.splitdrive(os.path.abspath(filepath))
-        safe = rest.lstrip("\\/").replace(":", "_")
-        target_dir = os.path.join(TRASH_DIR, ts, os.path.dirname(safe))
-        os.makedirs(target_dir, exist_ok=True)
-        target = os.path.join(target_dir, os.path.basename(filepath))
-        if os.path.exists(target):
-            target += f"_{int(time.time() * 1000) % 100000}"
-        shutil.move(filepath, target)
-        return True, None
-    except Exception as e:
-        return False, str(e)
+# def move_to_trash(filepath, use_send2trash=True):
+#     """Пытается отправить файл в системную корзину, иначе — в локальную."""
+#     if use_send2trash and HAS_SEND2TRASH:
+#         try:
+#             send2trash(filepath)
+#             return True, None
+#         except Exception as e:
+#             log.warning("send2trash не сработал: %s", e)
+#     try:
+#         ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+#         drive, rest = os.path.splitdrive(os.path.abspath(filepath))
+#         safe = rest.lstrip("\\/").replace(":", "_")
+#         target_dir = os.path.join(TRASH_DIR, ts, os.path.dirname(safe))
+#         os.makedirs(target_dir, exist_ok=True)
+#         target = os.path.join(target_dir, os.path.basename(filepath))
+#         if os.path.exists(target):
+#             target += f"_{int(time.time() * 1000) % 100000}"
+#         shutil.move(filepath, target)
+#         return True, None
+#     except Exception as e:
+#         return False, str(e)
 
 
-def create_hardlink(src, dst):
-    """Безопасно заменяет dst жёсткой ссылкой на src (атомарно)."""
-    try:
-        if not os.path.exists(src):
-            return False, "Источник не найден"
-        if os.path.exists(dst):
-            try:
-                if os.path.samefile(src, dst):
-                    return True, None
-            except OSError:
-                pass
-            # линк во временный путь, затем атомарный replace
-            tmp_dir = os.path.dirname(dst) or "."
-            fd, tmp_path = tempfile.mkstemp(prefix=".dflink_", dir=tmp_dir)
-            os.close(fd)
-            os.remove(tmp_path)
-            try:
-                os.link(src, tmp_path)
-                os.replace(tmp_path, dst)
-            except Exception:
-                if os.path.exists(tmp_path):
-                    try:
-                        os.remove(tmp_path)
-                    except OSError:
-                        pass
-                raise
-        else:
-            os.link(src, dst)
-        return True, None
-    except Exception as e:
-        return False, str(e)
+# def create_hardlink(src, dst):
+#     """Безопасно заменяет dst жёсткой ссылкой на src (атомарно)."""
+#     try:
+#         if not os.path.exists(src):
+#             return False, "Источник не найден"
+#         if os.path.exists(dst):
+#             try:
+#                 if os.path.samefile(src, dst):
+#                     return True, None
+#             except OSError:
+#                 pass
+#             # линк во временный путь, затем атомарный replace
+#             tmp_dir = os.path.dirname(dst) or "."
+#             fd, tmp_path = tempfile.mkstemp(prefix=".dflink_", dir=tmp_dir)
+#             os.close(fd)
+#             os.remove(tmp_path)
+#             try:
+#                 os.link(src, tmp_path)
+#                 os.replace(tmp_path, dst)
+#             except Exception:
+#                 if os.path.exists(tmp_path):
+#                     try:
+#                         os.remove(tmp_path)
+#                     except OSError:
+#                         pass
+#                 raise
+#         else:
+#             os.link(src, dst)
+#         return True, None
+#     except Exception as e:
+#         return False, str(e)
 
 
 # ============================================================================
@@ -1868,32 +1901,44 @@ class DuplicateFinderApp:
     # ==================================================================
     # ХЕШИРОВАНИЕ
     # ==================================================================
+    
+    # >> hashing.py >>>>>>>>>>
+    # def calculate_hash(self, filepath, algorithm="md5"):
+    #     h = hashlib.new(algorithm)
+    #     try:
+    #         with open(filepath, "rb") as f:
+    #             for chunk in iter(lambda: f.read(BLOCK_SIZE), b""):
+    #                 if self.stop_search:
+    #                     break
+    #                 h.update(chunk)
+    #     except Exception as e:
+    #         raise Exception(f"Ошибка чтения {filepath}: {e}")
+    #     return h.hexdigest()
+    
+    # << hashing.py <<< 
     def calculate_hash(self, filepath, algorithm="md5"):
-        h = hashlib.new(algorithm)
-        try:
-            with open(filepath, "rb") as f:
-                for chunk in iter(lambda: f.read(BLOCK_SIZE), b""):
-                    if self.stop_search:
-                        break
-                    h.update(chunk)
-        except Exception as e:
-            raise Exception(f"Ошибка чтения {filepath}: {e}")
-        return h.hexdigest()
+        return _hash_full(filepath, algorithm)
 
+    # >>> hashing.py >>>
+    # def calculate_quick_hash(self, filepath, algorithm="md5"):
+    #     h = hashlib.new(algorithm)
+    #     try:
+    #         size = os.path.getsize(filepath)
+    #         with open(filepath, "rb") as f:
+    #             if size <= BLOCK_SIZE * 2:
+    #                 h.update(f.read())
+    #             else:
+    #                 h.update(f.read(BLOCK_SIZE))
+    #                 f.seek(-BLOCK_SIZE, os.SEEK_END)
+    #                 h.update(f.read(BLOCK_SIZE))
+    #     except Exception:
+    #         return None
+    #     return h.hexdigest()
+
+    # <<< hashing.py <<<
     def calculate_quick_hash(self, filepath, algorithm="md5"):
-        h = hashlib.new(algorithm)
-        try:
-            size = os.path.getsize(filepath)
-            with open(filepath, "rb") as f:
-                if size <= BLOCK_SIZE * 2:
-                    h.update(f.read())
-                else:
-                    h.update(f.read(BLOCK_SIZE))
-                    f.seek(-BLOCK_SIZE, os.SEEK_END)
-                    h.update(f.read(BLOCK_SIZE))
-        except Exception:
-            return None
-        return h.hexdigest()
+        return _hash_quick(filepath, algorithm)
+
 
     def get_file_hash_cached(self, filepath, algorithm):
         if self.stop_search:
@@ -1926,9 +1971,19 @@ class DuplicateFinderApp:
     # ==================================================================
     # ЗАПУСК
     # ==================================================================
+    
+    # # Внизу добавлена нормальизация адреса --> проверяется на работоспособность
+    # def select_folder(self):
+    #     folder = filedialog.askdirectory(title="Выберите папку")
+    #     if folder:
+    #         self.folder_path.set(folder)
+    #         self._remember_path(folder)
+
+    # ЭКСПЕРЕМЕНТАЛЬНЫЙ ВЫВОД ПАПОК 
     def select_folder(self):
         folder = filedialog.askdirectory(title="Выберите папку")
         if folder:
+            folder = normalize_path(folder)
             self.folder_path.set(folder)
             self._remember_path(folder)
 
@@ -1959,9 +2014,15 @@ class DuplicateFinderApp:
                   foreground=self.theme["accent"]).pack(pady=15)
         for d in drives:
             ttk.Button(win, text=f"📀 {d}", width=25,
-                       command=lambda dd=d: (self.folder_path.set(dd),
+                       command=lambda dd=d: (self.folder_path.set(normalize_path(dd)),
                                              self._remember_path(dd),
                                              win.destroy())).pack(pady=4)
+            # # Проверяется normalize_path(dd) ------
+            # ttk.Button(win, text=f"📀 {d}", width=25,
+            #            command=lambda dd=d: (self.folder_path.set(dd),
+            #                                  self._remember_path(dd),
+            #                                  win.destroy())).pack(pady=4)
+            
 
     def start_search(self):
         if self.search_in_progress:
@@ -1973,7 +2034,13 @@ class DuplicateFinderApp:
             messagebox.showerror("Ошибка", "Папка не существует!")
             return
 
-        self._remember_path(self.folder_path.get())
+        # Нормализация перед использованием пути
+        normalized = normalize_path(self.folder_path.get())
+        self.folder_path.set(normalized)
+        self._remember_path(normalized)
+
+        # Эксперемент с нормализацией -- normalize_path
+        # self._remember_path(self.folder_path.get())
 
         self.settings.update({
             "last_algorithm": self.hash_algo.get(),
@@ -2458,20 +2525,26 @@ class DuplicateFinderApp:
         else:
             self.save_results_to_file(self.duplicates, target=fn)
 
-        messagebox.showinfo("Готово", f"✅ Сохранено:\n{fn}")
+        messagebox.showinfo("Готово", f"Сохранено:\n{fn}")
 
     # ==================================================================
     # УТИЛИТЫ
     # ==================================================================
+    
+    # >>> utils.py >>>
+    # def format_size(self, size_bytes):
+    #     if size_bytes == 0:
+    #         return "0 Б"
+    #     names = ["Б", "КБ", "МБ", "ГБ", "ТБ", "ПБ"]
+    #     i = 0
+    #     while size_bytes >= 1024 and i < len(names) - 1:
+    #         size_bytes /= 1024.0
+    #         i += 1
+    #     return f"{size_bytes:.2f} {names[i]}"
+
+    # <<< utils.py <<<
     def format_size(self, size_bytes):
-        if size_bytes == 0:
-            return "0 Б"
-        names = ["Б", "КБ", "МБ", "ГБ", "ТБ", "ПБ"]
-        i = 0
-        while size_bytes >= 1024 and i < len(names) - 1:
-            size_bytes /= 1024.0
-            i += 1
-        return f"{size_bytes:.2f} {names[i]}"
+        return format_size(size_bytes)   
 
     def save_results_to_file(self, duplicates, target=None):
         if not duplicates:
