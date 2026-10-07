@@ -1,5 +1,5 @@
 """
-DUPLICATE FINDER v 0.9.0
+DUPLICATE FINDER v 0.9.1
 Интеллектуальный поиск дубликатов файлов с графическим интерфейсом
 """
 
@@ -10,7 +10,7 @@ import sys
 import threading
 import queue
 import json
-import sqlite3
+# import sqlite3 # >>> cache.py >>>
 import logging 
 from datetime import datetime
 from collections import defaultdict
@@ -38,6 +38,7 @@ from andup.utils import (
     create_hardlink, format_size, normalize_path,
 )
 from andup.hashing import calculate_hash as _hash_full, calculate_quick_hash as _hash_quick
+from andup.cache import HashCache
 
 logging.basicConfig(
     filename=LOG_FILE, level=logging.INFO,
@@ -49,88 +50,90 @@ log = logging.getLogger("df")
 # ============================================================================
 # SQLite-КЭШ
 # ============================================================================
-class HashCache:
-    SCHEMA = """
-        CREATE TABLE IF NOT EXISTS hash_cache (
-            path TEXT PRIMARY KEY,
-            hash TEXT NOT NULL,
-            algo TEXT NOT NULL,
-            size INTEGER NOT NULL,
-            mtime REAL NOT NULL,
-            timestamp REAL
-        );
-        CREATE INDEX IF NOT EXISTS idx_path ON hash_cache(path);
-    """
 
-    def __init__(self, db_path="hash_cache.db"):
-        self.db_path = db_path
-        self.lock = threading.Lock()
-        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
-        try:
-            self.conn.execute("PRAGMA journal_mode=WAL;")
-            self.conn.execute("PRAGMA synchronous=NORMAL;")
-        except sqlite3.OperationalError:
-            pass
-        self.conn.executescript(self.SCHEMA)
-        self.conn.commit()
+# # >>> cache.py >>>
+# class HashCache:
+#     SCHEMA = """
+#         CREATE TABLE IF NOT EXISTS hash_cache (
+#             path TEXT PRIMARY KEY,
+#             hash TEXT NOT NULL,
+#             algo TEXT NOT NULL,
+#             size INTEGER NOT NULL,
+#             mtime REAL NOT NULL,
+#             timestamp REAL
+#         );
+#         CREATE INDEX IF NOT EXISTS idx_path ON hash_cache(path);
+#     """
 
-    def get(self, filepath, algorithm, size, mtime):
-        with self.lock:
-            cur = self.conn.execute(
-                "SELECT hash, size, mtime FROM hash_cache WHERE path = ? AND algo = ?",
-                (filepath, algorithm))
-            row = cur.fetchone()
-        if row is None:
-            return None
-        h, cs, cm = row
-        if cs == size and abs(cm - mtime) < 1:
-            return h
-        return None
+#     def __init__(self, db_path="hash_cache.db"):
+#         self.db_path = db_path
+#         self.lock = threading.Lock()
+#         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
+#         try:
+#             self.conn.execute("PRAGMA journal_mode=WAL;")
+#             self.conn.execute("PRAGMA synchronous=NORMAL;")
+#         except sqlite3.OperationalError:
+#             pass
+#         self.conn.executescript(self.SCHEMA)
+#         self.conn.commit()
 
-    def set(self, filepath, algorithm, hash_val, size, mtime):
-        with self.lock:
-            self.conn.execute(
-                "INSERT OR REPLACE INTO hash_cache "
-                "(path, hash, algo, size, mtime, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-                (filepath, hash_val, algorithm, size, mtime, time.time()))
+#     def get(self, filepath, algorithm, size, mtime):
+#         with self.lock:
+#             cur = self.conn.execute(
+#                 "SELECT hash, size, mtime FROM hash_cache WHERE path = ? AND algo = ?",
+#                 (filepath, algorithm))
+#             row = cur.fetchone()
+#         if row is None:
+#             return None
+#         h, cs, cm = row
+#         if cs == size and abs(cm - mtime) < 1:
+#             return h
+#         return None
 
-    def delete(self, filepath):
-        with self.lock:
-            self.conn.execute("DELETE FROM hash_cache WHERE path = ?", (filepath,))
+#     def set(self, filepath, algorithm, hash_val, size, mtime):
+#         with self.lock:
+#             self.conn.execute(
+#                 "INSERT OR REPLACE INTO hash_cache "
+#                 "(path, hash, algo, size, mtime, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+#                 (filepath, hash_val, algorithm, size, mtime, time.time()))
 
-    def flush(self):
-        with self.lock:
-            self.conn.commit()
+#     def delete(self, filepath):
+#         with self.lock:
+#             self.conn.execute("DELETE FROM hash_cache WHERE path = ?", (filepath,))
 
-    def clear(self):
-        with self.lock:
-            self.conn.execute("DELETE FROM hash_cache")
-            self.conn.commit()
-            try:
-                self.conn.execute("VACUUM;")
-            except sqlite3.OperationalError:
-                pass
+#     def flush(self):
+#         with self.lock:
+#             self.conn.commit()
 
-    def count(self):
-        with self.lock:
-            cur = self.conn.execute("SELECT COUNT(*) FROM hash_cache")
-            return cur.fetchone()[0] or 0
+#     def clear(self):
+#         with self.lock:
+#             self.conn.execute("DELETE FROM hash_cache")
+#             self.conn.commit()
+#             try:
+#                 self.conn.execute("VACUUM;")
+#             except sqlite3.OperationalError:
+#                 pass
 
-    def size_bytes(self):
-        try:
-            return os.path.getsize(self.db_path)
-        except OSError:
-            return 0
+#     def count(self):
+#         with self.lock:
+#             cur = self.conn.execute("SELECT COUNT(*) FROM hash_cache")
+#             return cur.fetchone()[0] or 0
 
-    def close(self):
-        with self.lock:
-            if self.conn:
-                try:
-                    self.conn.commit()
-                except Exception:
-                    pass
-                self.conn.close()
-                self.conn = None
+#     def size_bytes(self):
+#         try:
+#             return os.path.getsize(self.db_path)
+#         except OSError:
+#             return 0
+
+#     def close(self):
+#         with self.lock:
+#             if self.conn:
+#                 try:
+#                     self.conn.commit()
+#                 except Exception:
+#                     pass
+#                 self.conn.close()
+#                 self.conn = None
 
 # ============================================================================
 # ПРИЛОЖЕНИЕ
