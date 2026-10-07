@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](#️-совместимость)
-[![Version](https://img.shields.io/badge/version-0.9.0-orange.svg)](https://github.com/R0M10/andup/releases)
+[![Version](https://img.shields.io/badge/version-0.9.1-orange.svg)](https://github.com/R0M10/andup/releases)
 
 **Duplicate Finder** — десктопное приложение для поиска, просмотра и безопасного удаления дубликатов файлов. Оптимизировано для работы с большими коллекциями (книги, фото, музыка, документы) на HDD и SSD.
 
