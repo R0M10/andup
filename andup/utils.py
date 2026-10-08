@@ -43,7 +43,7 @@ if os.name == "nt":
 log = logging.getLogger("df")
 
 # ============================================================================
-# ЗАЩИТА ПУТЕЙ
+#                              ЗАЩИТА ПУТЕЙ
 # ============================================================================
 
 def check_protected(filepath):
@@ -65,7 +65,7 @@ def check_protected(filepath):
     return False
 
 # ============================================================================
-# УДАЛЕНИЕ В КОРЗИНУ
+#                          УДАЛЕНИЕ В КОРЗИНУ
 # ============================================================================
 
 def _move_to_recycle_bin_windows(filepath):
@@ -102,6 +102,7 @@ def _move_to_recycle_bin_windows(filepath):
         return True, None
     except Exception as e:
         return False, str(e)
+
 
 def _move_to_local_trash(filepath):
     """Fallback: переместить файл в локальную папку DuplicateFinder_Trash/."""
@@ -155,36 +156,6 @@ def move_to_trash(filepath, use_send2trash=True):
     return ok, err
 
 
-    # >>> часть кода который глючно работает с кирилическими адресами 
-    # if use_send2trash and HAS_SEND2TRASH:
-    #     try:
-    #         # Нормализация пути: send2trash на Windows
-    #         normalized = os.path.abspath(filepath)
-    #         if normalized.startswith("\\\\?\\"):
-    #             normalized = normalized[4:]
-    #         send2trash(normalized)
-    #         return True, None
-    #     except Exception as e:
-    #         #log.warning("send2trash не сработал: %s", e)
-    #         log.info("send2trash недоступен для %s, использую локальную корзину: %s",
-    #                  filepath, e)
-
-    # try:
-    #     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    #     drive, rest = os.path.splitdrive(os.path.abspath(filepath))
-    #     safe = rest.lstrip("\\/").replace(":", "_")
-    #     target_dir = os.path.join(TRASH_DIR, ts, os.path.dirname(safe))
-    #     os.makedirs(target_dir, exist_ok=True)
-    #     target = os.path.join(target_dir, os.path.basename(filepath))
-    #     if os.path.exists(target):
-    #         target += f"_{int(time.time() * 1000) % 100000}"
-    #     shutil.move(filepath, target)
-    #     return True, None
-    # except Exception as e:
-    #     return False, str(e)
-
-
-
 def create_hardlink(src, dst):
     """
     Безопасно заменяет dst жёсткой ссылкой на src (атомарно)
@@ -221,7 +192,7 @@ def create_hardlink(src, dst):
         return False, str(e)
 
 # ============================================================================
-# ПУТИ
+#                                  ПУТИ
 # ============================================================================
 
 def normalize_path(path):
@@ -240,7 +211,7 @@ def normalize_path(path):
     return os.path.normpath(path)
 
 # ============================================================================
-# ФОРМАТИРОВАНИЕ
+#                              ФОРМАТИРОВАНИЕ
 # ============================================================================
 
 def format_size(size_bytes):

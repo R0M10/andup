@@ -39,6 +39,14 @@ from andup.utils import (
 )
 from andup.hashing import calculate_hash as _hash_full, calculate_quick_hash as _hash_quick
 from andup.cache import HashCache
+from andup.reporter import (
+    build_html_report, build_txt_report, autosave_report,
+    write_results_json, write_results_csv,
+    write_group_txt, write_group_json, write_group_csv,
+    write_checked_list,
+)
+from andup.session import save_session as _save_session, load_session as _load_session
+
 
 logging.basicConfig(
     filename=LOG_FILE, level=logging.INFO,
@@ -48,7 +56,7 @@ logging.basicConfig(
 log = logging.getLogger("df")
 
 # ============================================================================
-# SQLite-КЭШ
+#                                SQLite-КЭШ
 # ============================================================================
 
 # # >>> cache.py >>>
@@ -196,7 +204,7 @@ class DuplicateFinderApp:
         log.info("Запуск v%s", DF_VERSION)
 
     # ==================================================================
-    # СТИЛИ
+    #                             СТИЛИ
     # ==================================================================
     def setup_styles(self):
         style = ttk.Style()
@@ -697,7 +705,7 @@ class DuplicateFinderApp:
         self.text_output.tag_config("info", foreground=self.theme["info"])
 
     # ==================================================================
-    # ХОТКЕИ
+    #                           ХОТКЕИ
     # ==================================================================
     def _focus_in_input(self):
         w = self.root.focus_get()
@@ -721,7 +729,7 @@ class DuplicateFinderApp:
         self.root.bind("<Control-o>", lambda e: self.load_session())
 
     # ==================================================================
-    # ВКЛАДКА "ПО ГРУППАМ"
+    #                     ВКЛАДКА "ПО ГРУППАМ"
     # ==================================================================
     def _clear_tree(self):
         for item in self.tree.get_children():
@@ -936,7 +944,7 @@ class DuplicateFinderApp:
         self.preview_text.insert(tk.END, "\n".join(lines))
 
     # ==================================================================
-    # ВКЛАДКА "ВСЕ ДУБЛИКАТЫ"
+    #                    ВКЛАДКА "ВСЕ ДУБЛИКАТЫ"
     # ==================================================================
     def _file_icon(self, fp):
         ext = os.path.splitext(fp)[1].lower()
@@ -1370,6 +1378,48 @@ class DuplicateFinderApp:
             m += f"\n\n⚠️ Ошибки ({len(errors)}):\n" + "\n".join(errors[:5])
         messagebox.showinfo("Результат", m)
 
+    # <<< sessions.py <<<
+    # def export_checked_global(self):
+    #     to_export = list(self._all_checked)
+    #     if not to_export:
+    #         messagebox.showwarning("Нет выбранных", "Отметьте файлы.")
+    #         return
+    #     fn = filedialog.asksaveasfilename(
+    #         defaultextension=".txt",
+    #         filetypes=[("Текст", "*.txt"), ("JSON", "*.json"), ("CSV", "*.csv")],
+    #         title="Экспорт отмеченных",
+    #         initialfile=f"checked_{datetime.now():%Y%m%d_%H%M%S}")
+    #     if not fn:
+    #         return
+
+    #     if fn.endswith(".json"):
+    #         with open(fn, "w", encoding="utf-8") as f:
+    #             json.dump({"files": to_export,
+    #                        "count": len(to_export),
+    #                        "exported_at": datetime.now().isoformat()},
+    #                       f, ensure_ascii=False, indent=2)
+    #     elif fn.endswith(".csv"):
+    #         import csv
+    #         with open(fn, "w", newline="", encoding="utf-8") as f:
+    #             w = csv.writer(f, delimiter=";")
+    #             w.writerow(["Путь", "Размер", "Изменён"])
+    #             for fp in to_export:
+    #                 try:
+    #                     size = os.path.getsize(fp)
+    #                     mt = datetime.fromtimestamp(
+    #                         os.path.getmtime(fp)).strftime("%Y-%m-%d %H:%M:%S")
+    #                 except OSError:
+    #                     size, mt = "N/A", "N/A"
+    #                 w.writerow([fp, size, mt])
+    #     else:
+    #         with open(fn, "w", encoding="utf-8") as f:
+    #             for fp in to_export:
+    #                 f.write(fp + "\n")
+    #     self.log_message(f"Экспорт {len(to_export)} файлов → {fn}", "success")
+    #     messagebox.showinfo("Готово", f"Сохранено:\n{fn}")
+
+
+    # скорректированная функция 
     def export_checked_global(self):
         to_export = list(self._all_checked)
         if not to_export:
@@ -1382,32 +1432,14 @@ class DuplicateFinderApp:
             initialfile=f"checked_{datetime.now():%Y%m%d_%H%M%S}")
         if not fn:
             return
-
-        if fn.endswith(".json"):
-            with open(fn, "w", encoding="utf-8") as f:
-                json.dump({"files": to_export,
-                           "count": len(to_export),
-                           "exported_at": datetime.now().isoformat()},
-                          f, ensure_ascii=False, indent=2)
-        elif fn.endswith(".csv"):
-            import csv
-            with open(fn, "w", newline="", encoding="utf-8") as f:
-                w = csv.writer(f, delimiter=";")
-                w.writerow(["Путь", "Размер", "Изменён"])
-                for fp in to_export:
-                    try:
-                        size = os.path.getsize(fp)
-                        mt = datetime.fromtimestamp(
-                            os.path.getmtime(fp)).strftime("%Y-%m-%d %H:%M:%S")
-                    except OSError:
-                        size, mt = "N/A", "N/A"
-                    w.writerow([fp, size, mt])
-        else:
-            with open(fn, "w", encoding="utf-8") as f:
-                for fp in to_export:
-                    f.write(fp + "\n")
-        self.log_message(f"Экспорт {len(to_export)} файлов → {fn}", "success")
+        try:
+            write_checked_list(to_export, fn)
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{e}")
+            return
+        self.log_message(f"Экспорт {len(to_export)} файлов -> {fn}", "success")
         messagebox.showinfo("Готово", f"Сохранено:\n{fn}")
+
 
     def _export_specific_group(self, g_iid):
         try:
@@ -2058,7 +2090,23 @@ class DuplicateFinderApp:
             self.log_message("=" * 70, "info")
             log.info("Результат: %d групп, %d файлов", dup_groups, dup_files)
 
-            self.save_results_to_file(duplicates)
+            ######################################################
+            ##             обновленный код                      ##
+            # self.save_results_to_file(duplicates) # УДАЛИТЬ   ##
+            try:
+                autosave_report(
+                    duplicates, self.stats,
+                    folder_path=folder,
+                    algorithm=algo,
+                    thread_count=thread_count,
+                    use_cache=self.use_cache_var.get(),
+                    cache_hits=self._cache_hits,
+                    cache_misses=self._cache_misses,
+                )
+            except Exception as e:
+                self.log_message(f"⚠️ Не удалось сохранить отчёт: {e}", "warning")
+            ##                                                  ##
+            ######################################################
 
             if dup_groups > 0:
                 self.queue.put(("show_results", None))
@@ -2079,6 +2127,37 @@ class DuplicateFinderApp:
     # ==================================================================
     # СЕССИИ
     # ==================================================================
+    
+    # >>> session.py >>>
+    # def save_session(self):
+    #     if not self.duplicates:
+    #         messagebox.showwarning("Нет данных", "Нечего сохранять.")
+    #         return
+    #     fn = filedialog.asksaveasfilename(
+    #         defaultextension=".dfsess",
+    #         filetypes=[("Session", "*.dfsess"), ("JSON", "*.json"), ("Все", "*.*")],
+    #         title="Сохранить сессию",
+    #         initialfile=f"session_{datetime.now():%Y%m%d_%H%M%S}.dfsess")
+    #     if not fn:
+    #         return
+    #     data = {
+    #         "version": DF_VERSION,
+    #         "saved_at": datetime.now().isoformat(),
+    #         "search_path": self.folder_path.get(),
+    #         "algorithm": self.hash_algo.get(),
+    #         "stats": {k: (v.isoformat() if isinstance(v, datetime) else v)
+    #                   for k, v in self.stats.items()},
+    #         "duplicates": self.duplicates,
+    #     }
+    #     try:
+    #         with open(fn, "w", encoding="utf-8") as f:
+    #             json.dump(data, f, ensure_ascii=False, indent=2)
+    #         self.log_message(f"Сессия сохранена: {fn}", "success")
+    #         messagebox.showinfo("Готово", f"Сессия:\n{fn}")
+    #     except Exception as e:
+    #         messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{e}")
+
+    # Тонкая обёртка из <<< session.py <<<
     def save_session(self):
         if not self.duplicates:
             messagebox.showwarning("Нет данных", "Нечего сохранять.")
@@ -2090,52 +2169,74 @@ class DuplicateFinderApp:
             initialfile=f"session_{datetime.now():%Y%m%d_%H%M%S}.dfsess")
         if not fn:
             return
-        data = {
-            "version": DF_VERSION,
-            "saved_at": datetime.now().isoformat(),
-            "search_path": self.folder_path.get(),
-            "algorithm": self.hash_algo.get(),
-            "stats": {k: (v.isoformat() if isinstance(v, datetime) else v)
-                      for k, v in self.stats.items()},
-            "duplicates": self.duplicates,
-        }
-        try:
-            with open(fn, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            self.log_message(f"Сессия сохранена: {fn}", "success")
-            messagebox.showinfo("Готово", f"Сессия:\n{fn}")
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{e}")
+        ok, err = _save_session(
+            fn, self.duplicates, self.stats,
+            folder_path=self.folder_path.get(),
+            algorithm=self.hash_algo.get(),
+            version=DF_VERSION,
+        )
+        if not ok:
+            messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{err}")
+            return
+        self.log_message(f"Сессия сохранена: {fn}", "success")
+        messagebox.showinfo("Готово", f"Сессия:\n{fn}")
 
+    # >>> session.py >>>
+    # def load_session(self):
+    #     fn = filedialog.askopenfilename(
+    #         filetypes=[("Session", "*.dfsess"), ("JSON", "*.json"), ("Все", "*.*")],
+    #         title="Загрузить сессию")
+    #     if not fn:
+    #         return
+    #     try:
+    #         with open(fn, "r", encoding="utf-8") as f:
+    #             data = json.load(f)
+    #     except Exception as e:
+    #         messagebox.showerror("Ошибка", f"Не удалось прочитать:\n{e}")
+    #         return
+
+    #     self.duplicates = {k: [f for f in v if os.path.exists(f)]
+    #                        for k, v in data.get("duplicates", {}).items()}
+    #     self.duplicates = {k: v for k, v in self.duplicates.items() if len(v) > 1}
+    #     self.duplicate_keys = list(self.duplicates.keys())
+    #     self.current_group = 0
+    #     self._all_checked.clear()
+
+    #     st = data.get("stats", {})
+    #     for k in ("total_files", "duplicate_groups", "duplicate_files",
+    #               "total_size", "wasted_size"):
+    #         if k in st:
+    #             self.stats[k] = st[k]
+    #     self.stats["duplicate_groups"] = len(self.duplicates)
+    #     self.stats["duplicate_files"] = sum(len(v) for v in self.duplicates.values())
+
+    #     if data.get("search_path"):
+    #         self.folder_path.set(data["search_path"])
+
+    #     self.log_message(f"Сессия загружена: {fn}", "success")
+    #     self.update_group_display()
+    #     self._refresh_all_tree()
+    #     self.notebook.select(self.tab_all)
+
+    # Тонкая обёртка из <<< sessions.py <<<
     def load_session(self):
         fn = filedialog.askopenfilename(
             filetypes=[("Session", "*.dfsess"), ("JSON", "*.json"), ("Все", "*.*")],
             title="Загрузить сессию")
         if not fn:
             return
-        try:
-            with open(fn, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось прочитать:\n{e}")
+        data = _load_session(fn)
+        if data is None:
+            messagebox.showerror("Ошибка", "Не удалось прочитать сессию.")
             return
 
-        self.duplicates = {k: [f for f in v if os.path.exists(f)]
-                           for k, v in data.get("duplicates", {}).items()}
-        self.duplicates = {k: v for k, v in self.duplicates.items() if len(v) > 1}
+        self.duplicates = data["duplicates"]
         self.duplicate_keys = list(self.duplicates.keys())
         self.current_group = 0
         self._all_checked.clear()
+        self.stats.update(data["stats"])
 
-        st = data.get("stats", {})
-        for k in ("total_files", "duplicate_groups", "duplicate_files",
-                  "total_size", "wasted_size"):
-            if k in st:
-                self.stats[k] = st[k]
-        self.stats["duplicate_groups"] = len(self.duplicates)
-        self.stats["duplicate_files"] = sum(len(v) for v in self.duplicates.values())
-
-        if data.get("search_path"):
+        if data["search_path"]:
             self.folder_path.set(data["search_path"])
 
         self.log_message(f"Сессия загружена: {fn}", "success")
@@ -2146,60 +2247,87 @@ class DuplicateFinderApp:
     # ==================================================================
     # HTML-ОТЧЁТ
     # ==================================================================
-    def _build_html_report(self):
-        t = self.theme
-        parts = ['<!DOCTYPE html><html><head><meta charset="utf-8">',
-                 "<title>Duplicate Finder — отчёт</title><style>"]
-        parts.append(
-            f"body{{font-family:Segoe UI,Arial,sans-serif;background:{t['bg']};"
-            f"color:{t['fg']};margin:24px}}")
-        parts.append("h1{color:#3498db} h2{color:#2c3e50;border-bottom:1px solid #ccc;"
-                     "padding-bottom:4px;margin-top:32px}")
-        parts.append("table{border-collapse:collapse;width:100%;margin:10px 0;background:#fff}")
-        parts.append("th,td{border:1px solid #ddd;padding:6px 10px;text-align:left;font-size:13px}")
-        parts.append("th{background:#ecf0f1}")
-        parts.append(".img-preview{max-width:100px;max-height:100px;border:1px solid #ccc}")
-        parts.append(".muted{color:#888;font-size:12px}")
-        parts.append(".stat{display:inline-block;background:#3498db;color:#fff;"
-                     "padding:8px 14px;border-radius:6px;margin-right:10px;font-weight:bold}")
-        parts.append("</style></head><body>")
+    
+    # # >>> reporter.py >>>
+    # def _build_html_report(self):
+    #     t = self.theme
+    #     parts = ['<!DOCTYPE html><html><head><meta charset="utf-8">',
+    #              "<title>Duplicate Finder — отчёт</title><style>"]
+    #     parts.append(
+    #         f"body{{font-family:Segoe UI,Arial,sans-serif;background:{t['bg']};"
+    #         f"color:{t['fg']};margin:24px}}")
+    #     parts.append("h1{color:#3498db} h2{color:#2c3e50;border-bottom:1px solid #ccc;"
+    #                  "padding-bottom:4px;margin-top:32px}")
+    #     parts.append("table{border-collapse:collapse;width:100%;margin:10px 0;background:#fff}")
+    #     parts.append("th,td{border:1px solid #ddd;padding:6px 10px;text-align:left;font-size:13px}")
+    #     parts.append("th{background:#ecf0f1}")
+    #     parts.append(".img-preview{max-width:100px;max-height:100px;border:1px solid #ccc}")
+    #     parts.append(".muted{color:#888;font-size:12px}")
+    #     parts.append(".stat{display:inline-block;background:#3498db;color:#fff;"
+    #                  "padding:8px 14px;border-radius:6px;margin-right:10px;font-weight:bold}")
+    #     parts.append("</style></head><body>")
 
-        parts.append("<h1>🔍 Отчёт Duplicate Finder</h1>")
-        parts.append(f"<p class='muted'>Дата: {datetime.now():%Y-%m-%d %H:%M:%S} • "
-                     f"Папка: {self.folder_path.get()} • Алгоритм: {self.hash_algo.get().upper()}</p>")
-        parts.append(
-            f"<div>"
-            f"<span class='stat'>Групп: {len(self.duplicates):,}</span>"
-            f"<span class='stat'>Файлов: {sum(len(v) for v in self.duplicates.values()):,}</span>"
-            f"<span class='stat'>Освободить: {self.format_size(self.stats.get('wasted_size', 0))}</span>"
-            f"</div>")
+    #     parts.append("<h1>🔍 Отчёт Duplicate Finder</h1>")
+    #     parts.append(f"<p class='muted'>Дата: {datetime.now():%Y-%m-%d %H:%M:%S} • "
+    #                  f"Папка: {self.folder_path.get()} • Алгоритм: {self.hash_algo.get().upper()}</p>")
+    #     parts.append(
+    #         f"<div>"
+    #         f"<span class='stat'>Групп: {len(self.duplicates):,}</span>"
+    #         f"<span class='stat'>Файлов: {sum(len(v) for v in self.duplicates.values()):,}</span>"
+    #         f"<span class='stat'>Освободить: {self.format_size(self.stats.get('wasted_size', 0))}</span>"
+    #         f"</div>")
 
-        for i, (h, files) in enumerate(self.duplicates.items(), 1):
-            parts.append(f"<h2>Группа #{i} • {len(files)} копий</h2>")
-            parts.append(f"<p class='muted'>Хеш: {h}</p>")
-            parts.append("<table><tr><th>#</th><th>Превью</th><th>Путь</th>"
-                         "<th>Размер</th><th>Изменён</th></tr>")
-            for j, fp in enumerate(files, 1):
-                try:
-                    size = self.format_size(os.path.getsize(fp))
-                    mt = datetime.fromtimestamp(
-                        os.path.getmtime(fp)).strftime("%Y-%m-%d %H:%M:%S")
-                except OSError:
-                    size, mt = "N/A", "N/A"
-                ext = os.path.splitext(fp)[1].lower()
-                preview = ""
-                if ext in IMG_EXTS:
-                    uri = "file:///" + os.path.abspath(fp).replace("\\", "/")
-                    preview = f"<img class='img-preview' src='{uri}'>"
-                parts.append(
-                    f"<tr><td>{j}</td><td>{preview}</td>"
-                    f"<td><a href='file:///{os.path.abspath(fp)}'>{fp}</a></td>"
-                    f"<td>{size}</td><td>{mt}</td></tr>")
-            parts.append("</table>")
+    #     for i, (h, files) in enumerate(self.duplicates.items(), 1):
+    #         parts.append(f"<h2>Группа #{i} • {len(files)} копий</h2>")
+    #         parts.append(f"<p class='muted'>Хеш: {h}</p>")
+    #         parts.append("<table><tr><th>#</th><th>Превью</th><th>Путь</th>"
+    #                      "<th>Размер</th><th>Изменён</th></tr>")
+    #         for j, fp in enumerate(files, 1):
+    #             try:
+    #                 size = self.format_size(os.path.getsize(fp))
+    #                 mt = datetime.fromtimestamp(
+    #                     os.path.getmtime(fp)).strftime("%Y-%m-%d %H:%M:%S")
+    #             except OSError:
+    #                 size, mt = "N/A", "N/A"
+    #             ext = os.path.splitext(fp)[1].lower()
+    #             preview = ""
+    #             if ext in IMG_EXTS:
+    #                 uri = "file:///" + os.path.abspath(fp).replace("\\", "/")
+    #                 preview = f"<img class='img-preview' src='{uri}'>"
+    #             parts.append(
+    #                 f"<tr><td>{j}</td><td>{preview}</td>"
+    #                 f"<td><a href='file:///{os.path.abspath(fp)}'>{fp}</a></td>"
+    #                 f"<td>{size}</td><td>{mt}</td></tr>")
+    #         parts.append("</table>")
 
-        parts.append("</body></html>")
-        return "\n".join(parts)
+    #     parts.append("</body></html>")
+    #     return "\n".join(parts)
 
+    # >>> reporter.py >>>
+    # def export_html_report(self):
+    #     if not self.duplicates:
+    #         messagebox.showwarning("Нет данных", "Сначала выполните поиск!")
+    #         return
+    #     fn = filedialog.asksaveasfilename(
+    #         defaultextension=".html",
+    #         filetypes=[("HTML", "*.html"), ("Все", "*.*")],
+    #         title="HTML-отчёт",
+    #         initialfile=f"duplicates_{datetime.now():%Y%m%d_%H%M%S}.html")
+    #     if not fn:
+    #         return
+    #     try:
+    #         with open(fn, "w", encoding="utf-8") as f:
+    #             f.write(self._build_html_report())
+    #         self.log_message(f"HTML-отчёт: {fn}", "success")
+    #         if messagebox.askyesno("Готово", f"Отчёт сохранён:\n{fn}\n\nОткрыть?"):
+    #             if os.name == "nt":
+    #                 os.startfile(fn)
+    #             else:
+    #                 subprocess.run(["xdg-open", fn])
+    #     except Exception as e:
+    #         messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{e}")
+
+    # новый вариант тонкой обертки
     def export_html_report(self):
         if not self.duplicates:
             messagebox.showwarning("Нет данных", "Сначала выполните поиск!")
@@ -2212,8 +2340,13 @@ class DuplicateFinderApp:
         if not fn:
             return
         try:
+            html = build_html_report(
+                self.duplicates, self.stats, self.theme,
+                folder_path=self.folder_path.get(),
+                algorithm=self.hash_algo.get(),
+            )
             with open(fn, "w", encoding="utf-8") as f:
-                f.write(self._build_html_report())
+                f.write(html)
             self.log_message(f"HTML-отчёт: {fn}", "success")
             if messagebox.askyesno("Готово", f"Отчёт сохранён:\n{fn}\n\nОткрыть?"):
                 if os.name == "nt":
@@ -2224,8 +2357,60 @@ class DuplicateFinderApp:
             messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{e}")
 
     # ==================================================================
-    # ЭКСПОРТ
+    #      ЭКСПОРТ
     # ==================================================================
+    
+    # # >>> reporter.py >>>
+    # def export_current_group(self):
+    #     if not self.duplicate_keys or self.current_group >= len(self.duplicate_keys):
+    #         messagebox.showwarning("Нет данных", "Нет активной группы.")
+    #         return
+    #     key = self.duplicate_keys[self.current_group]
+    #     files = self.duplicates[key]
+
+    #     fn = filedialog.asksaveasfilename(
+    #         defaultextension=".txt",
+    #         filetypes=[("Текст", "*.txt"), ("JSON", "*.json"), ("CSV", "*.csv")],
+    #         title=f"Сохранить группу #{self.current_group + 1}",
+    #         initialfile=f"group_{self.current_group + 1}.txt")
+    #     if not fn:
+    #         return
+
+    #     if fn.endswith(".json"):
+    #         data = {"group_number": self.current_group + 1, "hash": key,
+    #                 "file_count": len(files), "files": files,
+    #                 "export_time": datetime.now().isoformat()}
+    #         with open(fn, "w", encoding="utf-8") as f:
+    #             json.dump(data, f, ensure_ascii=False, indent=2)
+    #     elif fn.endswith(".csv"):
+    #         import csv
+    #         with open(fn, "w", newline="", encoding="utf-8") as f:
+    #             w = csv.writer(f, delimiter=";")
+    #             w.writerow(["Группа", "Хеш", "Номер", "Путь", "Размер", "Изменён"])
+    #             for j, fp in enumerate(files, 1):
+    #                 try:
+    #                     size = os.path.getsize(fp)
+    #                     mt = datetime.fromtimestamp(
+    #                         os.path.getmtime(fp)).strftime("%Y-%m-%d %H:%M:%S")
+    #                 except OSError:
+    #                     size, mt = "N/A", "N/A"
+    #                 w.writerow([self.current_group + 1, key, j, fp, size, mt])
+    #     else:
+    #         with open(fn, "w", encoding="utf-8") as f:
+    #             f.write(f"ГРУППА #{self.current_group + 1}\nХеш: {key}\n"
+    #                     f"Файлов: {len(files)}\n\n")
+    #             for i, fp in enumerate(files, 1):
+    #                 try:
+    #                     size = self.format_size(os.path.getsize(fp))
+    #                 except OSError:
+    #                     size = "N/A"
+    #                 f.write(f"{i}. {fp} ({size})\n")
+
+    #     self.log_message(f"Группа #{self.current_group + 1} → {fn}", "success")
+    #     messagebox.showinfo("Готово", f"Сохранено:\n{fn}")
+
+
+    # Новая Тонкая обёртка для функции <<< reporter.py <<< 
     def export_current_group(self):
         if not self.duplicate_keys or self.current_group >= len(self.duplicate_keys):
             messagebox.showwarning("Нет данных", "Нет активной группы.")
@@ -2241,39 +2426,79 @@ class DuplicateFinderApp:
         if not fn:
             return
 
-        if fn.endswith(".json"):
-            data = {"group_number": self.current_group + 1, "hash": key,
-                    "file_count": len(files), "files": files,
-                    "export_time": datetime.now().isoformat()}
-            with open(fn, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        elif fn.endswith(".csv"):
-            import csv
-            with open(fn, "w", newline="", encoding="utf-8") as f:
-                w = csv.writer(f, delimiter=";")
-                w.writerow(["Группа", "Хеш", "Номер", "Путь", "Размер", "Изменён"])
-                for j, fp in enumerate(files, 1):
-                    try:
-                        size = os.path.getsize(fp)
-                        mt = datetime.fromtimestamp(
-                            os.path.getmtime(fp)).strftime("%Y-%m-%d %H:%M:%S")
-                    except OSError:
-                        size, mt = "N/A", "N/A"
-                    w.writerow([self.current_group + 1, key, j, fp, size, mt])
-        else:
-            with open(fn, "w", encoding="utf-8") as f:
-                f.write(f"ГРУППА #{self.current_group + 1}\nХеш: {key}\n"
-                        f"Файлов: {len(files)}\n\n")
-                for i, fp in enumerate(files, 1):
-                    try:
-                        size = self.format_size(os.path.getsize(fp))
-                    except OSError:
-                        size = "N/A"
-                    f.write(f"{i}. {fp} ({size})\n")
+        group_num = self.current_group + 1
+        try:
+            if fn.endswith(".json"):
+                write_group_json(group_num, key, files, fn)
+            elif fn.endswith(".csv"):
+                write_group_csv(group_num, key, files, fn)
+            else:
+                write_group_txt(group_num, key, files, fn)
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{e}")
+            return
 
-        self.log_message(f"Группа #{self.current_group + 1} → {fn}", "success")
+        self.log_message(f"Группа #{group_num} -> {fn}", "success")
         messagebox.showinfo("Готово", f"Сохранено:\n{fn}")
 
+    # >>> reports.py >>>  
+    # def export_results(self):
+    #     if not self.duplicates:
+    #         messagebox.showwarning("Нет данных", "Сначала выполните поиск!")
+    #         return
+    #     fn = filedialog.asksaveasfilename(
+    #         defaultextension=".json",
+    #         filetypes=[("JSON", "*.json"), ("Текст", "*.txt"),
+    #                    ("CSV", "*.csv"), ("HTML", "*.html")],
+    #         title="Сохранить результаты",
+    #         initialfile=f"duplicates_{datetime.now():%Y%m%d_%H%M%S}")
+    #     if not fn:
+    #         return
+
+    #     if fn.endswith(".json"):
+    #         data = {
+    #             "metadata": {
+    #                 "search_path": self.folder_path.get(),
+    #                 "algorithm": self.hash_algo.get(),
+    #                 "thread_count": self.thread_count.get(),
+    #                 "use_cache": self.use_cache_var.get(),
+    #                 "timestamp": datetime.now().isoformat(),
+    #                 "program_version": DF_VERSION,
+    #             },
+    #             "statistics": {
+    #                 "total_groups": len(self.duplicates),
+    #                 "total_files": sum(len(f) for f in self.duplicates.values()),
+    #                 "cache_hits": self._cache_hits,
+    #                 "cache_misses": self._cache_misses,
+    #                 "wasted_size": self.stats.get("wasted_size", 0),
+    #             },
+    #             "duplicates": self.duplicates,
+    #         }
+    #         with open(fn, "w", encoding="utf-8") as f:
+    #             json.dump(data, f, ensure_ascii=False, indent=2)
+    #     elif fn.endswith(".csv"):
+    #         import csv
+    #         with open(fn, "w", newline="", encoding="utf-8") as f:
+    #             w = csv.writer(f, delimiter=";")
+    #             w.writerow(["Группа", "Хеш", "Номер", "Путь", "Размер", "Изменён"])
+    #             for i, (h, files) in enumerate(self.duplicates.items(), 1):
+    #                 for j, fp in enumerate(files, 1):
+    #                     try:
+    #                         size = os.path.getsize(fp)
+    #                         mt = datetime.fromtimestamp(
+    #                             os.path.getmtime(fp)).strftime("%Y-%m-%d %H:%M:%S")
+    #                     except OSError:
+    #                         size, mt = "N/A", "N/A"
+    #                     w.writerow([i, h, j, fp, size, mt])
+    #     elif fn.endswith(".html"):
+    #         with open(fn, "w", encoding="utf-8") as f:
+    #             f.write(self._build_html_report())
+    #     else:
+    #         self.save_results_to_file(self.duplicates, target=fn)
+
+    #     messagebox.showinfo("Готово", f"Сохранено:\n{fn}")
+
+    # Тонкая обёртка из <<< reports.py <<< 
     def export_results(self):
         if not self.duplicates:
             messagebox.showwarning("Нет данных", "Сначала выполните поиск!")
@@ -2287,48 +2512,38 @@ class DuplicateFinderApp:
         if not fn:
             return
 
-        if fn.endswith(".json"):
-            data = {
-                "metadata": {
-                    "search_path": self.folder_path.get(),
-                    "algorithm": self.hash_algo.get(),
-                    "thread_count": self.thread_count.get(),
-                    "use_cache": self.use_cache_var.get(),
-                    "timestamp": datetime.now().isoformat(),
-                    "program_version": DF_VERSION,
-                },
-                "statistics": {
-                    "total_groups": len(self.duplicates),
-                    "total_files": sum(len(f) for f in self.duplicates.values()),
-                    "cache_hits": self._cache_hits,
-                    "cache_misses": self._cache_misses,
-                    "wasted_size": self.stats.get("wasted_size", 0),
-                },
-                "duplicates": self.duplicates,
-            }
-            with open(fn, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        elif fn.endswith(".csv"):
-            import csv
-            with open(fn, "w", newline="", encoding="utf-8") as f:
-                w = csv.writer(f, delimiter=";")
-                w.writerow(["Группа", "Хеш", "Номер", "Путь", "Размер", "Изменён"])
-                for i, (h, files) in enumerate(self.duplicates.items(), 1):
-                    for j, fp in enumerate(files, 1):
-                        try:
-                            size = os.path.getsize(fp)
-                            mt = datetime.fromtimestamp(
-                                os.path.getmtime(fp)).strftime("%Y-%m-%d %H:%M:%S")
-                        except OSError:
-                            size, mt = "N/A", "N/A"
-                        w.writerow([i, h, j, fp, size, mt])
-        elif fn.endswith(".html"):
-            with open(fn, "w", encoding="utf-8") as f:
-                f.write(self._build_html_report())
-        else:
-            self.save_results_to_file(self.duplicates, target=fn)
+        kwargs = dict(
+            stats=self.stats,
+            folder_path=self.folder_path.get(),
+            algorithm=self.hash_algo.get(),
+            thread_count=self.thread_count.get(),
+            use_cache=self.use_cache_var.get(),
+            cache_hits=self._cache_hits,
+            cache_misses=self._cache_misses,
+        )
 
-        messagebox.showinfo("Готово", f"Сохранено:\n{fn}")
+        try:
+            if fn.endswith(".json"):
+                write_results_json(self.duplicates, fn, **kwargs)
+            elif fn.endswith(".csv"):
+                write_results_csv(self.duplicates, df)
+            elif fn.endswith(".html"):
+                html = build_html_report(
+                    self.duplicates, self.stats, self.theme,
+                    folder_path=self.folder_path.get(),
+                    algorithm=self.hash_algo.get(),
+                )
+                with open(fn, "w", encoding="utf-8") as f:
+                    f.write(html)
+            else:
+                content = build_txt_report(self.duplicates, **kwargs)
+                with open(fn, "w", encoding="utf-8") as f:
+                    f.write(content)
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{e}")
+            return
+
+        messagebox.showinfo("Готово", f"✅ Сохранено:\n{fn}")
 
     # ==================================================================
     # УТИЛИТЫ
@@ -2349,42 +2564,43 @@ class DuplicateFinderApp:
     def format_size(self, size_bytes):
         return format_size(size_bytes)   
 
-    def save_results_to_file(self, duplicates, target=None):
-        if not duplicates:
-            return
-        if target is None:
-            os.makedirs(REPORTS_DIR, exist_ok=True)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            target = os.path.join(REPORTS_DIR, f"duplicates_report_{ts}.txt")
+    # # >>> reports.py >>> 
+    # def save_results_to_file(self, duplicates, target=None):
+    #     if not duplicates:
+    #         return
+    #     if target is None:
+    #         os.makedirs(REPORTS_DIR, exist_ok=True)
+    #         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    #         target = os.path.join(REPORTS_DIR, f"duplicates_report_{ts}.txt")
 
-        total_files = sum(len(fs) for fs in duplicates.values())
-        wasted = self.stats.get("wasted_size", 0)
+    #     total_files = sum(len(fs) for fs in duplicates.values())
+    #     wasted = self.stats.get("wasted_size", 0)
 
-        with open(target, "w", encoding="utf-8") as f:
-            f.write("=" * 85 + "\n" + " " * 25 + "ОТЧЕТ О ДУБЛИКАТАХ\n" + "=" * 85 + "\n\n")
-            f.write(f"📅 {datetime.now():%Y-%m-%d %H:%M:%S}\n")
-            f.write(f"📁 {self.folder_path.get()}\n")
-            f.write(f"⚡ {self.hash_algo.get().upper()} | Потоки: {self.thread_count.get()}\n")
-            f.write(f"🔍 Групп: {len(duplicates):,}\n")
-            f.write(f"📄 Файлов: {total_files:,}\n")
-            f.write(f"🗑️ Лишний объем: {self.format_size(wasted)}\n\n")
-            f.write("=" * 85 + "\n" + " " * 30 + "ДЕТАЛЬНО\n" + "=" * 85 + "\n\n")
-            for i, (h, files) in enumerate(duplicates.items(), 1):
-                f.write(f"ГРУППА #{i}\nХеш: {h}\nКопий: {len(files)}\n" + "─" * 40 + "\n")
-                for j, fp in enumerate(files, 1):
-                    try:
-                        size = self.format_size(os.path.getsize(fp))
-                        mt = datetime.fromtimestamp(
-                            os.path.getmtime(fp)).strftime("%Y-%m-%d %H:%M:%S")
-                    except OSError:
-                        size, mt = "N/A", "N/A"
-                    f.write(f"\n{j}. {fp}\n   Размер: {size} | Изменён: {mt}\n")
-                f.write("\n" + "═" * 85 + "\n\n")
-            f.write("=" * 85 + "\n" + " " * 30 + "КОНЕЦ ОТЧЕТА\n" + "=" * 85 + "\n")
+    #     with open(target, "w", encoding="utf-8") as f:
+    #         f.write("=" * 85 + "\n" + " " * 25 + "ОТЧЕТ О ДУБЛИКАТАХ\n" + "=" * 85 + "\n\n")
+    #         f.write(f"📅 {datetime.now():%Y-%m-%d %H:%M:%S}\n")
+    #         f.write(f"📁 {self.folder_path.get()}\n")
+    #         f.write(f"⚡ {self.hash_algo.get().upper()} | Потоки: {self.thread_count.get()}\n")
+    #         f.write(f"🔍 Групп: {len(duplicates):,}\n")
+    #         f.write(f"📄 Файлов: {total_files:,}\n")
+    #         f.write(f"🗑️ Лишний объем: {self.format_size(wasted)}\n\n")
+    #         f.write("=" * 85 + "\n" + " " * 30 + "ДЕТАЛЬНО\n" + "=" * 85 + "\n\n")
+    #         for i, (h, files) in enumerate(duplicates.items(), 1):
+    #             f.write(f"ГРУППА #{i}\nХеш: {h}\nКопий: {len(files)}\n" + "─" * 40 + "\n")
+    #             for j, fp in enumerate(files, 1):
+    #                 try:
+    #                     size = self.format_size(os.path.getsize(fp))
+    #                     mt = datetime.fromtimestamp(
+    #                         os.path.getmtime(fp)).strftime("%Y-%m-%d %H:%M:%S")
+    #                 except OSError:
+    #                     size, mt = "N/A", "N/A"
+    #                 f.write(f"\n{j}. {fp}\n   Размер: {size} | Изменён: {mt}\n")
+    #             f.write("\n" + "═" * 85 + "\n\n")
+    #         f.write("=" * 85 + "\n" + " " * 30 + "КОНЕЦ ОТЧЕТА\n" + "=" * 85 + "\n")
 
-        if target.startswith(REPORTS_DIR):
-            self.log_message(f"📄 Отчёт: {target}", "success")
-            self.last_report_file = target
+    #     if target.startswith(REPORTS_DIR):
+    #         self.log_message(f"📄 Отчёт: {target}", "success")
+    #         self.last_report_file = target
 
     def open_results_folder(self):
         if os.path.exists(REPORTS_DIR):
